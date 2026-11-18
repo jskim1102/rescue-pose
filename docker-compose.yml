@@ -1,0 +1,119 @@
+# rescue-pose — RTSP 영상과 자세 기반 구조 알림
+# 설치·실행: Linux·macOS는 ./setup.sh, Windows는 setup.cmd
+# 접속: 설치가 끝나면 표시되는 주소를 브라우저에서 여세요.
+# 종료: docker compose down
+
+services:
+  # ─────────────────────────────── Backend ───────────────────────────────
+  backend:
+    build:
+      context: ./backend
+    image: ghcr.io/jskim1102/rescue-pose-backend:latest
+    container_name: rescue-pose-backend
+    environment:
+      # SQLite DB 를 named volume 으로 — config.py 기본 경로 대신 override (spec Decision).
+      DATABASE_URL: sqlite:////app/data/ipcam.db
+      MAX_IPCAMS: ${MAX_IPCAMS:-2}
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      # 프로젝트 전용 mediamtx API — compose 내부 DNS. path 등록/삭제/조회.
+      MEDIAMTX_API: ${MEDIAMTX_API:-http://mediamtx:9997}
+      # Detection 캡처는 WHEP 영상과 같은 mediamtx fan-out RTSP 를 읽어 시간축 차이를 줄인다.
+      MEDIAMTX_RTSP_BASE_URL: ${MEDIAMTX_RTSP_BASE_URL:-rtsp://mediamtx:8554}
+      # 기존 DB stream_key 호환 + viewer path 권한 경계.
+      MEDIAMTX_PATH_PREFIX: ${MEDIAMTX_PATH_PREFIX:-rescue_pose}
+      # 프로젝트 전용 mediamtx 인증 — backend user. API/publish/read.
+      MEDIAMTX_BACKEND_USER: ${MEDIAMTX_BACKEND_USER:-backend}
+      MEDIAMTX_BACKEND_PASS: ${MEDIAMTX_BACKEND_PASS:?set MEDIAMTX_BACKEND_PASS in .env}
+      # YOLO 추론 설정
+      YOLO_DEFAULT_MODEL: ${YOLO_DEFAULT_MODEL:-yolo26n-pose.pt}
+      YOLO_WEIGHTS_DIR: /app/models
+      YOLO_CONF_THRESHOLD: ${YOLO_CONF_THRESHOLD:-0.5}
+      # 빈 값이면 사용 가능한 GPU 또는 CPU를 선택한다.
+      YOLO_DEVICE: ${YOLO_DEVICE:-}
+    ports:
+      - "${BACKEND_PORT:?set BACKEND_PORT in .env}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    volumes:
+      # SQLite DB 영속화 — named volume (원본 bind-mount `touch deepeye.db` 트랩 회피).
+      - ipcam_db:/app/data
+      # 처음 받은 공식 모델을 컨테이너 재생성 후에도 같은 볼륨에서 읽는다.
+      - yolo_weights:/app/models
+    networks:
+      - rescue-pose
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+
+  # ─────────────────────────────── Frontend ──────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Vite 는 빌드 타임에 VITE_* 를 정적 인라인하므로 build.args 로 전달.
+        # 브라우저가 접속할 포트이므로 "호스트에 노출된" 포트 값을 넘긴다.
+        VITE_API_PORT: "${BACKEND_PORT}"
+        # WHEP 접속 포트 (mediamtx webrtc, 호스트 노출 포트).
+        VITE_MEDIAMTX_WEBRTC_PORT: "${MEDIAMTX_WEBRTC_PORT:?set MEDIAMTX_WEBRTC_PORT in .env}"
+        # WHEP 인증 — 브라우저가 이 프로젝트 viewer 자격증명으로 전용 mediamtx read (빌드타임 인라인).
+        VITE_MEDIAMTX_VIEWER_USER: "${MEDIAMTX_VIEWER_USER:-viewer_rescue_pose}"
+        VITE_MEDIAMTX_VIEWER_PASS: "${MEDIAMTX_VIEWER_PASS:?set MEDIAMTX_VIEWER_PASS in .env}"
+    image: rescue-pose-frontend:dev
+    pull_policy: build
+    container_name: rescue-pose-frontend
+    ports:
+      # 호스트 ${FRONTEND_PORT} → 컨테이너 80 (Nginx 기본 포트, 이미지 빌드시 고정)
+      - "${FRONTEND_PORT:?set FRONTEND_PORT in .env}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ────────────────────────────── MediaMTX ──────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:1.19.1-ffmpeg
+    container_name: rescue-pose-mediamtx
+    environment:
+      # 외부 WHEP 연결에 광고할 LAN/공인 IP.
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_WEBRTC_HOST:-127.0.0.1}
+      # ICE 후보가 실제 host offset 포트를 광고하도록 컨테이너도 같은 포트에서 수신한다.
+      MTX_WEBRTCLOCALUDPADDRESS: ":${MEDIAMTX_ICE_UDP_PORT:?set MEDIAMTX_ICE_UDP_PORT in .env}"
+      # UDP 차단망을 위한 ICE TCP fallback.
+      MTX_WEBRTCLOCALTCPADDRESS: ":${MEDIAMTX_ICE_UDP_PORT:?set MEDIAMTX_ICE_UDP_PORT in .env}"
+      # mediamtx.yml authInternalUsers 순서와 강결합: 1=backend, 2=viewer_rescue_pose.
+      MTX_AUTHINTERNALUSERS_1_USER: ${MEDIAMTX_BACKEND_USER:-backend}
+      MTX_AUTHINTERNALUSERS_1_PASS: ${MEDIAMTX_BACKEND_PASS:?set MEDIAMTX_BACKEND_PASS in .env}
+      MTX_AUTHINTERNALUSERS_2_USER: ${MEDIAMTX_VIEWER_USER:-viewer_rescue_pose}
+      MTX_AUTHINTERNALUSERS_2_PASS: ${MEDIAMTX_VIEWER_PASS:?set MEDIAMTX_VIEWER_PASS in .env}
+      MTX_AUTHINTERNALUSERS_2_PERMISSIONS_0_PATH: "~^${MEDIAMTX_PATH_PREFIX:-rescue_pose}__"
+      MTX_AUTHINTERNALUSERS_2_PERMISSIONS_1_PATH: "~^${MEDIAMTX_PATH_PREFIX:-rescue_pose}__"
+    ports:
+      # API 는 backend control plane 용이라 host loopback 에만 노출한다.
+      - "127.0.0.1:${MEDIAMTX_API_PORT:?set MEDIAMTX_API_PORT in .env}:9997"
+      - "${MEDIAMTX_RTSP_PORT:?set MEDIAMTX_RTSP_PORT in .env}:8554"
+      - "${MEDIAMTX_WEBRTC_PORT:?set MEDIAMTX_WEBRTC_PORT in .env}:8889/tcp"
+      - "${MEDIAMTX_ICE_UDP_PORT:?set MEDIAMTX_ICE_UDP_PORT in .env}:${MEDIAMTX_ICE_UDP_PORT:?set MEDIAMTX_ICE_UDP_PORT in .env}/udp"
+      - "${MEDIAMTX_ICE_UDP_PORT:?set MEDIAMTX_ICE_UDP_PORT in .env}:${MEDIAMTX_ICE_UDP_PORT:?set MEDIAMTX_ICE_UDP_PORT in .env}/tcp"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    networks:
+      - rescue-pose
+    restart: unless-stopped
+
+networks:
+  # Compose 가 프로젝트별 내부망을 생성한다. 외부 shared-mtx 인프라에 의존하지 않는다.
+  rescue-pose:
+
+volumes:
+  ipcam_db:
+  yolo_weights:
