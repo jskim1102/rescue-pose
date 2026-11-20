@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("서버 종료 완료")
 
 
-app = FastAPI(title="RTSP Detection API", lifespan=lifespan)
+app = FastAPI(title="Rescue Pose API", lifespan=lifespan)
 
 # CORS
 cors_origins = ["*"] if CORS_ORIGINS == "*" else [o.strip() for o in CORS_ORIGINS.split(",")]
