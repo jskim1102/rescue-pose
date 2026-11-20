@@ -90,3 +90,10 @@ def test_streaming_core_logs_follow_app_logging(monkeypatch):
     assert logging.getLogger("rtsp-keypoint").handlers
     assert logging.getLogger("rtsp-keypoint.streaming.manager").isEnabledFor(logging.INFO)
     assert config.logger.isEnabledFor(logging.INFO)
+
+
+def test_yolo_default_model_outside_presets_falls_back(monkeypatch):
+    """목록 밖 · 빈 YOLO_DEFAULT_MODEL 은 기본 모델로 — 그대로 쓰면 기본 lane 이 로드 실패로 추론이 조용히 멈춘다."""
+    assert _reload_config(monkeypatch, YOLO_DEFAULT_MODEL="nope.pt").YOLO_DEFAULT_MODEL == "yolo26n-pose.pt"
+    assert _reload_config(monkeypatch, YOLO_DEFAULT_MODEL="").YOLO_DEFAULT_MODEL == "yolo26n-pose.pt"
+    assert _reload_config(monkeypatch, YOLO_DEFAULT_MODEL="yolo26x-pose.pt").YOLO_DEFAULT_MODEL == "yolo26x-pose.pt"

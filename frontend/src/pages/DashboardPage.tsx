@@ -300,6 +300,19 @@ function DashboardPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  // stats 1초 polling — 값은 화면에 쓰지 않는다. backend stats 핸들러의 ensure_stream 이
+  // mediamtx 독립 재시작으로 사라진 path 를 다시 등록하므로 대시보드만 떠 있어도 이 요청이 필요하다.
+  useEffect(() => {
+    const poll = () => {
+      for (const cam of cams) {
+        fetch(`${apiBase()}/api/ipcams/${cam.stream_key}/stats`).catch(() => {});
+      }
+    };
+    poll();
+    const id = window.setInterval(poll, 1000);
+    return () => window.clearInterval(id);
+  }, [cams]);
+
   // 구조 사건 타임라인 — UI 표시는 즉시 갱신하되, 로그는 안정된 사건 시작/종료만 append 한다.
   useEffect(() => {
     const nowMs = now.getTime();
