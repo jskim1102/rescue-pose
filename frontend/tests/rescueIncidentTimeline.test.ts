@@ -7,7 +7,7 @@ import {
   type RescueIncidentTimelineState,
   riskForPosture,
   updateRescueIncidentTimeline,
-} from "../src/pages/rescueIncidentTimeline";
+} from "../src/pages/rescueIncidentTimeline.ts";
 
 function newState(): RescueIncidentTimelineState {
   return {};

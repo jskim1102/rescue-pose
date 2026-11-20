@@ -40,6 +40,41 @@ def test_get_path_raises_when_api_unset():
             mediamtx.get_path("ipcam-x")
 
 
+# ─── remove_stream 끝상태 반환 (codex #4 — orphan 라이브 스트림 차단) ───
+
+
+@pytest.mark.parametrize("status", [200, 204])
+def test_remove_stream_returns_true_on_success(status):
+    """삭제 성공(200/204) → True (끝상태=path 없음)."""
+    with patch.object(mediamtx, "MEDIAMTX_API", "http://mtx:9997"), \
+         patch("app.mediamtx.httpx.delete") as delete:
+        delete.return_value = MagicMock(status_code=status)
+        assert mediamtx.remove_stream("ipcam-x") is True
+
+
+def test_remove_stream_returns_true_on_404_idempotent():
+    """path 가 애초에 없음(404) → 끝상태(path 없음)는 동일하므로 멱등 성공(True)."""
+    with patch.object(mediamtx, "MEDIAMTX_API", "http://mtx:9997"), \
+         patch("app.mediamtx.httpx.delete") as delete:
+        delete.return_value = MagicMock(status_code=404)
+        assert mediamtx.remove_stream("ipcam-x") is True
+
+
+def test_remove_stream_returns_false_on_error_status():
+    """그 외 상태코드(예: 500) → False (호출부가 DB commit 중단 → orphan 차단)."""
+    with patch.object(mediamtx, "MEDIAMTX_API", "http://mtx:9997"), \
+         patch("app.mediamtx.httpx.delete") as delete:
+        delete.return_value = MagicMock(status_code=500, text="boom")
+        assert mediamtx.remove_stream("ipcam-x") is False
+
+
+def test_remove_stream_returns_false_on_connection_error():
+    """mediamtx 연결 실패(HTTPError) → False (끝상태 미확인 → 삭제 보류)."""
+    with patch.object(mediamtx, "MEDIAMTX_API", "http://mtx:9997"), \
+         patch("app.mediamtx.httpx.delete", side_effect=mediamtx.httpx.ConnectError("down")):
+        assert mediamtx.remove_stream("ipcam-x") is False
+
+
 # ─── runOnDemand 조건부 transcode payload (패턴 C) ───
 
 

@@ -5,7 +5,7 @@ import {
   type PatientEpisodeMap,
   ensurePatientEpisodeId,
   getPatientEpisodeId,
-} from "../src/pages/patientEpisode";
+} from "../src/pages/patientEpisode.ts";
 
 function nextIdFactory() {
   let seq = 0;
