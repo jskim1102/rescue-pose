@@ -6,6 +6,7 @@ config 는 import 시점에 env 를 읽으므로, env 를 세팅하고 importlib
 """
 
 import importlib
+import logging
 from pathlib import Path
 
 import pytest
@@ -81,3 +82,11 @@ def test_weights_directory_expands_home(monkeypatch):
 def test_weights_directory_rejects_non_preset_names(name):
     with pytest.raises(ValueError):
         resolve_model_path(name)
+
+
+def test_streaming_core_logs_follow_app_logging(monkeypatch):
+    """스트리밍 · 추론 코어(capture · manager · worker)는 rtsp-keypoint.* 이름을 쓴다 — 앱 로거만 켜면 그 INFO 가 조용히 사라진다."""
+    config = _reload_config(monkeypatch, LOG_LEVEL="INFO")
+    assert logging.getLogger("rtsp-keypoint").handlers
+    assert logging.getLogger("rtsp-keypoint.streaming.manager").isEnabledFor(logging.INFO)
+    assert config.logger.isEnabledFor(logging.INFO)

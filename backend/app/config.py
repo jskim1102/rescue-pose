@@ -129,6 +129,13 @@ def setup_logging() -> logging.Logger:
         )
         logger.addHandler(handler)
 
+    # 스트리밍 · 추론 코어(capture · manager · worker)는 rtsp-keypoint.* 이름으로 로그를 남긴다 — 같은 수준 · 출력으로 켜야 그 INFO 가 보인다
+    core = logging.getLogger("rtsp-keypoint")
+    core.setLevel(logger.level)
+    if not core.handlers:
+        for h in logger.handlers:
+            core.addHandler(h)
+
     return logger
 
 
