@@ -3,12 +3,13 @@
 # 접속: 설치가 끝나면 표시되는 주소를 브라우저에서 여세요.
 # 종료: docker compose down
 
+name: rescue-pose
+
 services:
   # ─────────────────────────────── Backend ───────────────────────────────
   backend:
     build:
       context: ./backend
-    image: ghcr.io/jskim1102/rescue-pose-backend:latest
     container_name: rescue-pose-backend
     environment:
       # SQLite DB 를 named volume 으로 — config.py 기본 경로 대신 override (spec Decision).
